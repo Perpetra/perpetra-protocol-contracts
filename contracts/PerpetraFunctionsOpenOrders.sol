@@ -37,7 +37,7 @@ contract PerpetraFunctionsOpenOrders is FunctionsClient, ConfirmedOwner {
     "const backend=\"https://perpetra-api.aftermiracle.com\",rpc=\"https://eth.llamarpc.com\",headers={\"Content-Type\":\"application/json\"},http=(u,{method:m=\"GET\",data:d}={})=>Functions.makeHttpRequest({url:u,method:m,headers,data:d}),getBTC=async()=>{const r=await Functions.makeHttpRequest({url:rpc,method:\"POST\",headers,data:{jsonrpc:\"2.0\",method:\"eth_call\",params:[{to:\"0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c\",data:\"0x50d25bcd\"},\"latest\"],id:1}}),h=r?.data?.result;if(!h||h===\"0x\")throw new Error(\"No result\");const p=Number(BigInt(h))/1e8;if(!(p>0))throw new Error(\"Invalid price\");return p},getOrders=async()=>{const r=await http(`${backend}/orders/all-opened-orders`);return Array.isArray(r.data?.data)?r.data.data.slice(0,3):[]},shouldExec=async o=>{const r=await http(`${backend}/should-execute`,{method:\"POST\",data:{direction:o.type,amount:o.amount,leverage:o.leverage,volatility:1.3}});if(typeof r.data?.shouldExecute!==\"boolean\")throw new Error(\"Bad decision\");return r.data.shouldExecute},exec=async(i,p)=>http(`${backend}/orders/order/${i}/execute`,{method:\"POST\",data:{entryPrice:p}});try{const[p,o]=await Promise.all([getBTC(),getOrders()]);let c=0;await Promise.all(o.map(async x=>{try{if(await shouldExec(x)){await exec(x.id,p);c++}}catch(_){}}));return Functions.encodeUint256(c)}catch(e){throw new Error(`Failed: ${e.message}`)}";
 
     //Callback gas limit
-    uint32 gasLimit = 500000;
+    uint32 gasLimit = 300000;
 
     // donID - Hardcoded for Sepolia
     // Check to get the donID for your supported network https://docs.chain.link/chainlink-functions/supported-networks
