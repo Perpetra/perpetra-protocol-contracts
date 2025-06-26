@@ -8,7 +8,6 @@ const apiHeaders = {
 const http = (url, { method = "GET", data } = {}) =>
     Functions.makeHttpRequest({ url, method, headers: apiHeaders, data });
 
-// Fetch latest BTC/USD from Chainlink on Mainnet
 async function getBTCPrice() {
     const callData = "0x50d25bcd"; // latestAnswer()
     const body = {
@@ -36,13 +35,11 @@ async function getBTCPrice() {
     return price;
 }
 
-// Get all open positions
 async function getOpenPositions() {
     const res = await http(`${backendBaseUrl}/positions/all-opened-positions`);
     return Array.isArray(res.data?.data) ? res.data.data : [];
 }
 
-// Ask “Eliza” whether to close a given position
 async function shouldClose(position) {
     const payload = {
         direction:    position.type,
@@ -65,7 +62,6 @@ async function shouldClose(position) {
     return ok;
 }
 
-// Close a single position
 async function closePosition(positionId, closePrice) {
     return http(
         `${backendBaseUrl}/positions/position/${positionId}/close`,
@@ -73,13 +69,11 @@ async function closePosition(positionId, closePrice) {
     );
 }
 
-// Main entrypoint for Chainlink Functions
 try {
     const price     = await getBTCPrice();
     const positions = await getOpenPositions();
     const closedIds = [];
 
-    // Process all positions concurrently
     await Promise.all(positions.map(async (pos) => {
         try {
             if (await shouldClose(pos)) {
@@ -91,8 +85,7 @@ try {
         }
     }));
 
-    // Return closed position IDs
-    return Functions.encodeString(JSON.stringify(closedIds));
+    return Functions.encodeUint256(closedIds.length);
 } catch (err) {
     throw new Error(`Function failed: ${err.message}`);
 }
