@@ -1,97 +1,92 @@
-const backendBaseUrl = "https://perpetra-api.aftermiracle.com";
-const rpcUrl         = "https://eth.llamarpc.com";
+const backend = "https://perpetra-api.aftermiracle.com";
+const rpc = "https://eth.llamarpc.com";
 
-const apiHeaders = {
+const headers = {
     "Content-Type": "application/json"
 };
 
 const http = (url, { method = "GET", data } = {}) =>
-    Functions.makeHttpRequest({ url, method, headers: apiHeaders, data });
+    Functions.makeHttpRequest({ url, method, headers, data });
 
-// Fetch latest BTC/USD from Chainlink on Mainnet
-async function getBTCPrice() {
-    const callData = "0x50d25bcd"; // latestAnswer()
-    const body = {
-        jsonrpc: "2.0",
-        method:  "eth_call",
-        params: [{
-            to:   "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c",
-            data: callData,
-        }, "latest"],
-        id: 1,
-    };
-
-    const res = await Functions.makeHttpRequest({
-        url:    rpcUrl,
+// Get BTC price via Chainlink feed (mainnet)
+async function getBTC() {
+    const response = await Functions.makeHttpRequest({
+        url: rpc,
         method: "POST",
-        headers:{ "Content-Type": "application/json" },
-        data:   body,
+        headers,
+        data: {
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [
+                {
+                    to: "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c",
+                    data: "0x50d25bcd" // latestAnswer()
+                },
+                "latest"
+            ],
+            id: 1
+        }
     });
 
-    const hex = res?.data?.result;
-    if (!hex || hex === "0x") throw new Error("No result from Chainlink feed");
+    const hex = response?.data?.result;
+    if (!hex || hex === "0x") throw new Error("No result");
 
     const price = Number(BigInt(hex)) / 1e8;
-    if (!(price > 0)) throw new Error("Invalid BTC price parsed");
+    if (!(price > 0)) throw new Error("Invalid price");
+
     return price;
 }
 
-// Get all open orders
-async function getOpenOrders() {
-    const res = await http(`${backendBaseUrl}/orders/all-opened-orders`);
-    return Array.isArray(res.data?.data) ? res.data.data : [];
+async function getOrders() {
+    const res = await http(`${backend}/orders/all-opened-orders`);
+    return Array.isArray(res.data?.data) ? res.data.data.slice(0, 3) : [];
 }
 
-// Ask “Eliza” whether to execute
-async function shouldExecute(order) {
-    const payload = {
-        direction:  order.type,
-        amount:     order.amount,
-        leverage:   order.leverage,
-        volatility: 1.3,
-    };
-    const res = await http(`${backendBaseUrl}/should-execute`, {
+async function shouldExec(order) {
+    const res = await http(`${backend}/should-execute`, {
         method: "POST",
-        data: payload,
+        data: {
+            direction: order.type,
+            amount: order.amount,
+            leverage: order.leverage,
+            volatility: 1.3
+        }
     });
+
     const ok = res.data?.shouldExecute;
-    if (typeof ok !== "boolean") {
-        throw new Error(`Invalid response: ${JSON.stringify(res.data)}`);
-    }
+    if (typeof ok !== "boolean") throw new Error("Bad decision");
+
     return ok;
 }
 
-// Execute a single order
-async function executeOrder(orderId, entryPrice) {
-    return http(
-        `${backendBaseUrl}/orders/order/${orderId}/execute`,
-        { method: "POST", data: { entryPrice } }
-    );
+async function exec(orderId, entryPrice) {
+    return http(`${backend}/orders/order/${orderId}/execute`, {
+        method: "POST",
+        data: { entryPrice }
+    });
 }
 
-// Main entrypoint for Chainlink Functions
 try {
-    // Fetch price + orders in parallel
     const [price, orders] = await Promise.all([
-        getBTCPrice(),
-        getOpenOrders(),
+        getBTC(),
+        getOrders()
     ]);
 
-    const executedIds = [];
+    let count = 0;
 
-    // Process all orders concurrently
-    await Promise.all(orders.map(async (order) => {
-        try {
-            if (await shouldExecute(order)) {
-                await executeOrder(order.id, price);
-                executedIds.push(order.id);
+    await Promise.all(
+        orders.map(async (order) => {
+            try {
+                if (await shouldExec(order)) {
+                    await exec(order.id, price);
+                    count++;
+                }
+            } catch (_) {
             }
-        } catch (err) {
-            console.warn(`Order ${order.id} failed:`, err.message);
-        }
-    }));
+        })
+    );
 
-    return Functions.encodeString(JSON.stringify(executedIds));
-} catch (err) {
-    throw new Error(`Function failed: ${err.message}`);
+    return Functions.encodeUint256(count);
+} catch (e) {
+    throw new Error(`Failed: ${e.message}`);
 }
