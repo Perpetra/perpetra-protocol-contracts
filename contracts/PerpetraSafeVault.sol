@@ -7,10 +7,10 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
-contract SafeVault is AccessControl, ReentrancyGuard {
+contract PerpetraSafeVault is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
+    bytes32 public constant DEPOSITOR_ROLE = keccak256("DEPOSITOR_ROLE");
 
     IERC20 public immutable usdc;
     AggregatorV3Interface public priceFeed;
@@ -37,7 +37,7 @@ contract SafeVault is AccessControl, ReentrancyGuard {
     function processDeposit(
         address user,
         uint256 amount
-    ) external onlyRole(BRIDGE_ROLE) {
+    ) external onlyRole(DEPOSITOR_ROLE) {
         if (user == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
@@ -48,7 +48,7 @@ contract SafeVault is AccessControl, ReentrancyGuard {
     function requestWithdraw(
         address user,
         uint256 amount
-    ) external onlyRole(BRIDGE_ROLE) nonReentrant {
+    ) external onlyRole(DEPOSITOR_ROLE) nonReentrant {
         if (user == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         uint256 bal = _balances[user];

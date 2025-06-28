@@ -13,7 +13,7 @@ interface ISafeVault {
     function requestWithdraw(address wallet, uint256 amount) external;
 }
 
-contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
+contract PerpetraDeposit is CCIPReceiver, OwnerIsCreator {
     using SafeERC20 for IERC20;
 
     uint64 public constant VAULT_CHAIN_ID = 11155111; // Sepolia
