@@ -46,6 +46,7 @@ contract PerpetraDeposit is CCIPReceiver, OwnerIsCreator {
         usdc.safeTransferFrom(msg.sender, address(this), amount);
 
         if (block.chainid == VAULT_CHAIN_ID) {
+            usdc.safeTransfer(safeVaultSepolia, amount);
             ISafeVault(safeVaultSepolia).processDeposit(msg.sender, amount);
         } else {
             _sendCrossChain(ActionType.Deposit, msg.sender, amount);
@@ -163,6 +164,7 @@ contract PerpetraDeposit is CCIPReceiver, OwnerIsCreator {
 
         ActionType action = ActionType(actionUint);
         if (action == ActionType.Deposit) {
+            usdc.safeTransfer(safeVaultSepolia, amount);
             ISafeVault(safeVaultSepolia).processDeposit(wallet, amount);
         } else {
             ISafeVault(safeVaultSepolia).requestWithdraw(wallet, amount);
