@@ -1,59 +1,51 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {IRouterClient} from "@chainlink/contracts-ccip@1.6.0/contracts/interfaces/IRouterClient.sol";
-import {OwnerIsCreator} from "@chainlink/contracts@1.4.0/src/v0.8/shared/access/OwnerIsCreator.sol";
+import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
+import {OwnerIsCreator} from "@chainlink/contracts/src/v0.8/shared/access/OwnerIsCreator.sol";
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 import {CCIPReceiver} from "@chainlink/contracts-ccip/contracts/applications/CCIPReceiver.sol";
-import {Client} from "@chainlink/contracts-ccip@1.6.0/contracts/libraries/Client.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20} from "@chainlink/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@chainlink/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface ISafeVault {
-    function processDeposit(address user, uint256 amount) external;
-    function requestWithdraw(address user, uint256 amount) external;
+    function processDeposit(address wallet, uint256 amount) external;
+    function requestWithdraw(address wallet, uint256 amount) external;
 }
 
-contract CrossChainBridge is OwnerIsCreator {
+contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
     using SafeERC20 for IERC20;
 
     uint64 public constant VAULT_CHAIN_ID = 11155111; // Sepolia
 
-    IRouterClient private s_router;
     IERC20 public immutable usdc;
-    address public safeVault;
+    address public safeVaultSepolia;
+    address public perpetraCrossChainBridgeSepolia;
     uint64 public destinationChainSelector;
 
-    event LocalDeposit(address indexed user, uint256 amount);
-    event CCIPDepositSent(address indexed user, uint256 amount, bytes32 messageId);
-    event CCIPDepositReceived(address indexed user, uint256 amount);
+    bytes32 public lastReceivedMessageId;
 
-    error DestinationChainNotAllowlisted(uint64 chain);
+    enum ActionType { Deposit, Withdraw }
+
     error NotEnoughNativeFee(uint256 balance, uint256 fee);
 
     constructor(
         address _router,
         address _usdc,
-        address _safeVault,
         uint64 _destinationChainSelector
-    ) {
-        s_router = IRouterClient(_router);
+    ) CCIPReceiver(_router) {
         usdc = IERC20(_usdc);
-        safeVault = _safeVault;
         destinationChainSelector = _destinationChainSelector;
     }
 
     function deposit(uint256 amount) external {
         require(amount > 0, "Amount must be > 0");
-
         usdc.safeTransferFrom(msg.sender, address(this), amount);
 
-        emit LocalDeposit(msg.sender, amount);
-
         if (block.chainid == VAULT_CHAIN_ID) {
-            ISafeVault(safeVault).processDeposit(msg.sender, amount);
+            ISafeVault(safeVaultSepolia).processDeposit(msg.sender, amount);
         } else {
-            bytes32 messageId = _sendCrossChain(amount);
-            emit CCIPDepositSent(msg.sender, amount, messageId);
+            _sendCrossChain(ActionType.Deposit, msg.sender, amount);
         }
     }
 
@@ -61,75 +53,119 @@ contract CrossChainBridge is OwnerIsCreator {
         require(amount > 0, "Amount must be > 0");
 
         if (block.chainid == VAULT_CHAIN_ID) {
-            ISafeVault(safeVault).requestWithdraw(msg.sender, amount);
+            ISafeVault(safeVaultSepolia).requestWithdraw(msg.sender, amount);
+        } else {
+            _sendCrossChain(ActionType.Withdraw, msg.sender, amount);
         }
     }
 
-    function _sendCrossChain(uint256 amount) internal returns (bytes32 messageId) {
-        Client.EVM2AnyMessage memory evm2AnyMessage = _buildCCIPMessage(
-            safeVault,
-            address(usdc),
-            amount,
-            address(0)
-        );
+    function _sendCrossChain(ActionType _action, address _wallet, uint256 _amount) internal returns (bytes32 messageId) {
+        Client.EVM2AnyMessage memory msgToSend = _action == ActionType.Deposit
+            ? _buildCCIPMessageForDeposit(_wallet, _amount)
+            : _buildCCIPMessageForWithdraw(_wallet, _amount);
 
-        uint256 fees = s_router.getFee(
+        IRouterClient router = IRouterClient(this.getRouter());
+
+        uint256 fee = router.getFee(destinationChainSelector, msgToSend);
+        if (fee > address(this).balance) {
+            revert NotEnoughNativeFee(address(this).balance, fee);
+        }
+
+        if (_action == ActionType.Deposit) {
+            usdc.safeApprove(address(router), _amount);
+        }
+
+        messageId = router.ccipSend{value: fee}(
             destinationChainSelector,
-            evm2AnyMessage
-        );
-
-        if (fees > address(this).balance)
-            revert NotEnoughNativeFee(address(this).balance, fees);
-
-        IERC20(usdc).approve(address(s_router), amount);
-
-        messageId = s_router.ccipSend{value: fees}(
-            destinationChainSelector,
-            evm2AnyMessage
+            msgToSend
         );
 
         return messageId;
     }
 
-    function _buildCCIPMessage(
-        address _receiver,
-        address _token,
-        uint256 _amount,
-        address _feeTokenAddress
-    ) private pure returns (Client.EVM2AnyMessage memory) {
-        // Set the token amounts
+    function _buildCCIPMessageForDeposit(
+        address wallet,
+        uint256 amount
+    ) private view returns (Client.EVM2AnyMessage memory) {
         Client.EVMTokenAmount[]
         memory tokenAmounts = new Client.EVMTokenAmount[](1);
         tokenAmounts[0] = Client.EVMTokenAmount({
-            token: _token,
-            amount: _amount
+            token: address(usdc),
+            amount: amount
         });
 
-        // Create an EVM2AnyMessage struct in memory with necessary information for sending a cross-chain message
+        bytes memory data = abi.encode(uint8(ActionType.Deposit), wallet, amount);
+
         return
             Client.EVM2AnyMessage({
-            receiver: abi.encode(_receiver), // ABI-encoded receiver address
-            data: "", // No data
-            tokenAmounts: tokenAmounts, // The amount and type of token being transferred
+            receiver: abi.encode(perpetraCrossChainBridgeSepolia),
+            data: data,
+            tokenAmounts: tokenAmounts,
             extraArgs: Client._argsToBytes(
-        // Additional arguments, setting gas limit and allowing out-of-order execution.
-        // Best Practice: For simplicity, the values are hardcoded. It is advisable to use a more dynamic approach
-        // where you set the extra arguments off-chain. This allows adaptation depending on the lanes, messages,
-        // and ensures compatibility with future CCIP upgrades. Read more about it here: https://docs.chain.link/ccip/concepts/best-practices/evm#using-extraargs
                 Client.GenericExtraArgsV2({
-                    gasLimit: 0, // Gas limit for the callback on the destination chain
-                    allowOutOfOrderExecution: true // Allows the message to be executed out of order relative to other messages from the same sender
+                    gasLimit: 200_000,
+                    allowOutOfOrderExecution: true
                 })
             ),
-        // Set the feeToken to a feeTokenAddress, indicating specific asset will be used for fees
-            feeToken: _feeTokenAddress
+            feeToken: address(0)
         });
+    }
+
+    function _buildCCIPMessageForWithdraw(
+        address wallet,
+        uint256 amount
+    ) private view returns (Client.EVM2AnyMessage memory) {
+        bytes memory data = abi.encode(uint8(ActionType.Withdraw), wallet, amount);
+
+        return
+            Client.EVM2AnyMessage({
+            receiver: abi.encode(perpetraCrossChainBridgeSepolia),
+            data: data,
+            tokenAmounts: new Client.EVMTokenAmount[](0),
+            extraArgs: Client._argsToBytes(
+                Client.GenericExtraArgsV2({
+                    gasLimit: 200_000,
+                    allowOutOfOrderExecution: true
+                })
+            ),
+            feeToken: address(0)
+        });
+    }
+
+    function _ccipReceive(
+        Client.Any2EVMMessage memory any2EvmMessage
+    )
+    internal
+    override
+    {
+        lastReceivedMessageId = any2EvmMessage.messageId; // fetch the messageId
+
+        if (block.chainid != VAULT_CHAIN_ID) {
+            return;
+        }
+
+        (uint8 actionUint, address wallet, uint256 amount) = abi.decode(
+            any2EvmMessage.data,
+            (uint8, address, uint256)
+        );
+
+        ActionType action = ActionType(actionUint);
+        if (action == ActionType.Deposit) {
+            ISafeVault(safeVaultSepolia).processDeposit(wallet, amount);
+        } else {
+            ISafeVault(safeVaultSepolia).requestWithdraw(wallet, amount);
+        }
+
     }
 
     // --- Admin ---
 
-    function setSafeVault(address _vault) external onlyOwner {
-        safeVault = _vault;
+    function setSafeVaultSepolia(address _vault) external onlyOwner {
+        safeVaultSepolia = _vault;
+    }
+
+    function setPerpetraCrossChainBridgeSepolia(address _address) external onlyOwner {
+        perpetraCrossChainBridgeSepolia = _address;
     }
 
     function setDestinationChainSelector(uint64 selector) external onlyOwner {
