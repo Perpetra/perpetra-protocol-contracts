@@ -25,7 +25,10 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
 
     bytes32 public lastReceivedMessageId;
 
-    enum ActionType { Deposit, Withdraw }
+    enum ActionType {
+        Deposit,
+        Withdraw
+    }
 
     error NotEnoughNativeFee(uint256 balance, uint256 fee);
 
@@ -59,7 +62,11 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
         }
     }
 
-    function _sendCrossChain(ActionType _action, address _wallet, uint256 _amount) internal returns (bytes32 messageId) {
+    function _sendCrossChain(
+        ActionType _action,
+        address _wallet,
+        uint256 _amount
+    ) internal returns (bytes32 messageId) {
         Client.EVM2AnyMessage memory msgToSend = _action == ActionType.Deposit
             ? _buildCCIPMessageForDeposit(_wallet, _amount)
             : _buildCCIPMessageForWithdraw(_wallet, _amount);
@@ -94,7 +101,11 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
             amount: amount
         });
 
-        bytes memory data = abi.encode(uint8(ActionType.Deposit), wallet, amount);
+        bytes memory data = abi.encode(
+            uint8(ActionType.Deposit),
+            wallet,
+            amount
+        );
 
         return
             Client.EVM2AnyMessage({
@@ -115,7 +126,11 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
         address wallet,
         uint256 amount
     ) private view returns (Client.EVM2AnyMessage memory) {
-        bytes memory data = abi.encode(uint8(ActionType.Withdraw), wallet, amount);
+        bytes memory data = abi.encode(
+            uint8(ActionType.Withdraw),
+            wallet,
+            amount
+        );
 
         return
             Client.EVM2AnyMessage({
@@ -134,10 +149,7 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
 
     function _ccipReceive(
         Client.Any2EVMMessage memory any2EvmMessage
-    )
-    internal
-    override
-    {
+    ) internal override {
         lastReceivedMessageId = any2EvmMessage.messageId; // fetch the messageId
 
         if (block.chainid != VAULT_CHAIN_ID) {
@@ -155,7 +167,6 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
         } else {
             ISafeVault(safeVaultSepolia).requestWithdraw(wallet, amount);
         }
-
     }
 
     // --- Admin ---
@@ -164,7 +175,9 @@ contract CrossChainBridge is CCIPReceiver, OwnerIsCreator {
         safeVaultSepolia = _vault;
     }
 
-    function setPerpetraCrossChainBridgeSepolia(address _address) external onlyOwner {
+    function setPerpetraCrossChainBridgeSepolia(
+        address _address
+    ) external onlyOwner {
         perpetraCrossChainBridgeSepolia = _address;
     }
 

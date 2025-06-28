@@ -24,13 +24,20 @@ contract SafeVault is AccessControl, ReentrancyGuard {
     error ZeroAmount();
     error InsufficientBalance(uint256 available, uint256 required);
 
-    constructor(address defaultAdmin, address usdcAddress, address priceFeedAddress) {
+    constructor(
+        address defaultAdmin,
+        address usdcAddress,
+        address priceFeedAddress
+    ) {
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         usdc = IERC20(usdcAddress);
         priceFeed = AggregatorV3Interface(priceFeedAddress);
     }
 
-    function processDeposit(address user, uint256 amount) external onlyRole(BRIDGE_ROLE) {
+    function processDeposit(
+        address user,
+        uint256 amount
+    ) external onlyRole(BRIDGE_ROLE) {
         if (user == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
 
@@ -38,7 +45,10 @@ contract SafeVault is AccessControl, ReentrancyGuard {
         emit Deposit(user, amount);
     }
 
-    function requestWithdraw(address user, uint256 amount) external onlyRole(BRIDGE_ROLE) nonReentrant {
+    function requestWithdraw(
+        address user,
+        uint256 amount
+    ) external onlyRole(BRIDGE_ROLE) nonReentrant {
         if (user == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         uint256 bal = _balances[user];
@@ -54,12 +64,7 @@ contract SafeVault is AccessControl, ReentrancyGuard {
 
     function getLatestPrice() public view returns (int256) {
         // Chainlink Data Feed
-        (
-            ,
-            int256 price,
-            ,
-            ,
-        ) = priceFeed.latestRoundData();
+        (, int256 price, , , ) = priceFeed.latestRoundData();
         return price;
     }
 
