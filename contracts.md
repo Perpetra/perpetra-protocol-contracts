@@ -1,6 +1,6 @@
-PerpetraSafeVault = 0x966872933cd0064d4758a509F6be64926C81023f (ETH Sepolia)
-PerpetraDeposit = 0x2A2ab34B73E7222a02984D1C0e3Cf19aabB3C080 (ETH Sepolia)
-PerpetraDeposit = 0xA95618676B5c049F024529330C429dE868d7db41 (Base Sepolia)
+PerpetraSafeVault = 0x02d579fe9245Bf8B4344804857dc9D902e7c7d0d (ETH Sepolia)
+PerpetraDeposit = 0xEb0a08b456Be2cf2111d1353f26174e25d351e4C (ETH Sepolia)
+PerpetraDeposit = 0x536B6ca1344DBBa5Bfce3341a38fd77A10D6cf0B (Base Sepolia)
 
 PerpetraFunctionsOpenOrders = 0xfC6e1713FE1eb6ae4f2787fa4eD046d8497B00A8 (ETH Sepolia)
 PerpetraFunctionsClosePositions = 0x0c70ADa3BB59078fBF91f2208c70181CD2F71129 (ETH Sepolia)
